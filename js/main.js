@@ -1,23 +1,36 @@
 const elm = require("./elm").Elm.Main;
-
 const config = {
-    maxStates: 255,
+    maxStates: 50,
     numberOfAnts: 10,
-    gridWidth: 50,
-    gridHeight: 50,
-    cellwidth: 10
+    gridWidth: 100,
+    gridHeight: 100,
+    cellwidth: 5
 };
 
-const app1 = elm.init(
-    {
-        node: document.querySelector("body"),
-        flags: config
-    });
+const element = document.createElement("canvas");
+element.width = config.gridWidth * config.cellwidth;
+element.height = config.gridHeight * config.cellwidth;
 
-/*
-app.ports.inbox.send(JSON.stringify(obj));
-app.ports.outbox.subscribe(
-    data => console.log(data)
+document.querySelector("#canvas").appendChild(element);
+
+const context = element.getContext("2d");
+
+const app = elm.init(
+    {
+        node: document.querySelector("#controls"),
+        flags: config
+    }
 );
-*/
+
+
+app.ports.draw.subscribe(
+    drawables =>
+        drawables.forEach(
+            ([{ x, y }, color]) => {
+                const cellwidth = config.cellwidth;
+                context.fillStyle = color;
+                context.fillRect(x * cellwidth, y * cellwidth, cellwidth, cellwidth);
+            }
+        )
+);
 

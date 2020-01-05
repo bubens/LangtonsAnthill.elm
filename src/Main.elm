@@ -1,7 +1,6 @@
-module Main exposing (Hole(..), Model, Msg(..), init, main, subscriptions, update, view)
+port module Main exposing (Hole(..), Model, Msg(..), init, main, subscriptions, update, view)
 
 import Array exposing (Array)
-import Array.Extra
 import Browser
 import Browser.Events exposing (onAnimationFrame)
 import Html exposing (Html)
@@ -61,6 +60,10 @@ type alias Anthill =
     }
 
 
+type alias Drawable =
+    ( Coords, String )
+
+
 type Status
     = Initializing
     | Running
@@ -97,7 +100,7 @@ type Msg
 
 main : Program ConfigFlag Model Msg
 main =
-    Browser.document
+    Browser.element
         { init = init
         , view = view
         , update = update
@@ -201,18 +204,189 @@ init { maxStates, numberOfAnts, gridWidth, gridHeight, cellwidth } =
 
 
 
+-- UPDATE
+
+
+pairTo : b -> a -> ( a, b )
+pairTo b a =
+    ( a, b )
+
+
+withCommand : Cmd Msg -> Model -> ( Model, Cmd Msg )
+withCommand =
+    pairTo
+
+
+updateDirection : Anthill -> Ant -> Ant
+updateDirection anthill ant =
+    let
+        { pointsTo, rule } =
+            ant
+
+        index =
+            anthill.width
+                * ant.position.y
+                + ant.position.x
+
+        state =
+            Array.get index anthill.grid
+                |> Maybe.withDefault 0
+
+        turnTo =
+            Array.get state rule
+                |> Maybe.withDefault Left
+
+        nextDirection =
+            case turnTo of
+                Left ->
+                    case pointsTo of
+                        North ->
+                            West
+
+                        East ->
+                            North
+
+                        South ->
+                            East
+
+                        West ->
+                            South
+
+                Right ->
+                    case pointsTo of
+                        North ->
+                            East
+
+                        East ->
+                            South
+
+                        South ->
+                            West
+
+                        West ->
+                            North
+    in
+    { ant | pointsTo = nextDirection }
+
+
+updatePosition : Anthill -> Ant -> Ant
+updatePosition { width, height } ant =
+    let
+        { x, y } =
+            ant.position
+
+        nextPosition =
+            case ant.pointsTo of
+                North ->
+                    Coords
+                        x
+                        (if y - 1 < 0 then
+                            height - 1
+
+                         else
+                            y - 1
+                        )
+
+                East ->
+                    Coords
+                        (if (x - 1) < 0 then
+                            width - 1
+
+                         else
+                            x - 1
+                        )
+                        y
+
+                South ->
+                    Coords
+                        x
+                        (modBy height (y + 1))
+
+                West ->
+                    Coords
+                        (modBy width (x + 1))
+                        y
+    in
+    { ant | position = nextPosition }
+
+
+updateGrid : Ant -> ( Anthill, List Drawable ) -> ( Anthill, List Drawable )
+updateGrid { position } ( anthill, cumulator ) =
+    let
+        { grid, width, maxStates } =
+            anthill
+
+        { x, y } =
+            position
+
+        index =
+            (y * width) + x
+
+        newState =
+            Array.get
+                index
+                grid
+                |> Maybe.map (modBy maxStates << (+) 1)
+                |> Maybe.withDefault 0
+
+        nextGrid =
+            Array.set
+                index
+                newState
+                grid
+
+        color =
+            Array.get
+                newState
+                anthill.colors
+                |> Maybe.withDefault "#ff0000"
+    in
+    ( { anthill | grid = nextGrid }
+    , ( position, color ) :: cumulator
+    )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Tick ->
+            let
+                nextAnts =
+                    List.map
+                        (updateDirection model.anthill << updatePosition model.anthill)
+                        model.ants
+
+                drawableAnts =
+                    List.map
+                        (pairTo "#0000ff" << .position)
+                        nextAnts
+
+                ( nextAnthill, drawableCells ) =
+                    List.foldr
+                        updateGrid
+                        ( model.anthill, [] )
+                        model.ants
+            in
+            { model
+                | ants = nextAnts
+                , anthill = nextAnthill
+            }
+                |> withCommand
+                    (draw
+                        (drawableCells ++ drawableAnts)
+                    )
+
+        AntsInitialized randomizedAnts ->
+            { model
+                | ants = randomizedAnts
+                , state = Running
+            }
+                |> withCommand
+                    Cmd.none
+
+
+
 -- VIEW
-
-
-type alias Document msg =
-    { title : String
-    , body : List (Html msg)
-    }
-
-
-documentWithTitle : String -> Html msg -> Document msg
-documentWithTitle title body =
-    Document title [ body ]
 
 
 viewCell : Anthill -> (Int -> Int -> Svg msg)
@@ -310,163 +484,9 @@ viewAnthill { anthill, ants } =
         (renderedCells ++ renderedAnts)
 
 
-view : Model -> Document Msg
+view : Model -> Html msg
 view model =
-    viewAnthill model
-        |> documentWithTitle "Anthill"
-
-
-
--- UPDATE
-
-
-withCommand : Cmd Msg -> Model -> ( Model, Cmd Msg )
-withCommand msg model =
-    ( model, msg )
-
-
-updateDirection : Anthill -> Ant -> Ant
-updateDirection anthill ant =
-    let
-        { pointsTo, rule } =
-            ant
-
-        index =
-            anthill.width
-                * ant.position.y
-                + ant.position.x
-
-        state =
-            Array.get index anthill.grid
-                |> Maybe.withDefault 0
-
-        turnTo =
-            Array.get state rule
-                |> Maybe.withDefault Left
-
-        nextDirection =
-            case turnTo of
-                Left ->
-                    case pointsTo of
-                        North ->
-                            West
-
-                        East ->
-                            North
-
-                        South ->
-                            East
-
-                        West ->
-                            South
-
-                Right ->
-                    case pointsTo of
-                        North ->
-                            East
-
-                        East ->
-                            South
-
-                        South ->
-                            West
-
-                        West ->
-                            North
-    in
-    { ant | pointsTo = nextDirection }
-
-
-updatePosition : Anthill -> Ant -> Ant
-updatePosition { width, height } ant =
-    let
-        { x, y } =
-            ant.position
-
-        nextPosition =
-            case ant.pointsTo of
-                North ->
-                    Coords
-                        x
-                        (if y - 1 < 0 then
-                            height - 1
-
-                         else
-                            y - 1
-                        )
-
-                East ->
-                    Coords
-                        (if (x - 1) < 0 then
-                            width - 1
-
-                         else
-                            x - 1
-                        )
-                        y
-
-                South ->
-                    Coords
-                        x
-                        (modBy height (y + 1))
-
-                West ->
-                    Coords
-                        (modBy width (x + 1))
-                        y
-    in
-    { ant | position = nextPosition }
-
-
-updateGrid : Ant -> Anthill -> Anthill
-updateGrid { position } anthill =
-    let
-        { grid, width, maxStates } =
-            anthill
-
-        { x, y } =
-            position
-
-        index =
-            (y * width) + x
-
-        nextGrid =
-            Array.Extra.update
-                index
-                (modBy maxStates << (+) 1)
-                grid
-    in
-    { anthill | grid = nextGrid }
-
-
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    case msg of
-        Tick ->
-            let
-                nextAnts =
-                    List.map
-                        (updatePosition model.anthill << updateDirection model.anthill)
-                        model.ants
-
-                nextAnthill =
-                    List.foldl
-                        updateGrid
-                        model.anthill
-                        model.ants
-            in
-            { model
-                | ants = nextAnts
-                , anthill = nextAnthill
-            }
-                |> withCommand Cmd.none
-
-        AntsInitialized randomizedAnts ->
-            { model
-                | ants = randomizedAnts
-                , state = Running
-            }
-                |> withCommand Cmd.none
+    Html.div [] [ Html.text "Here be controls" ]
 
 
 
@@ -481,3 +501,10 @@ subscriptions { state } =
 
         _ ->
             Sub.none
+
+
+
+-- PORTS
+
+
+port draw : List Drawable -> Cmd msg
