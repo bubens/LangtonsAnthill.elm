@@ -4,7 +4,6 @@ import Array exposing (Array)
 import Array.Extra
 import Browser
 import Browser.Events exposing (onAnimationFrame)
-import Config exposing (Config)
 import Html exposing (Html)
 import Random
 import Svg exposing (Svg)
@@ -57,12 +56,23 @@ type alias Anthill =
     , width : Int
     , height : Int
     , maxStates : Int
+    , cellwidth : Int
+    , colors : Array String
     }
 
 
 type Status
     = Initializing
     | Running
+
+
+type alias ConfigFlag =
+    { maxStates : Int
+    , numberOfAnts : Int
+    , gridWidth : Int
+    , gridHeight : Int
+    , cellwidth : Int
+    }
 
 
 type alias Model =
@@ -79,6 +89,20 @@ type alias Model =
 type Msg
     = Tick
     | AntsInitialized (List Ant)
+
+
+
+-- MAIN
+
+
+main : Program ConfigFlag Model Msg
+main =
+    Browser.document
+        { init = init
+        , view = view
+        , update = update
+        , subscriptions = subscriptions
+        }
 
 
 
@@ -127,8 +151,32 @@ initGrid width height =
     Array.repeat (width * height) 0
 
 
-init : Config -> ( Model, Cmd Msg )
-init { maxStates, numberOfAnts, gridWidth, gridHeight } =
+initColors : Int -> Array String
+initColors maxStates =
+    List.range 0 maxStates
+        |> List.reverse
+        |> List.map
+            (\v ->
+                let
+                    s =
+                        toFloat v
+                            / toFloat maxStates
+                            * 255
+                            |> String.fromFloat
+                in
+                "rgb("
+                    ++ s
+                    ++ ","
+                    ++ s
+                    ++ ","
+                    ++ s
+                    ++ ")"
+            )
+        |> Array.fromList
+
+
+init : ConfigFlag -> ( Model, Cmd Msg )
+init { maxStates, numberOfAnts, gridWidth, gridHeight, cellwidth } =
     let
         ants =
             List.repeat maxStates <| initAnt maxStates
@@ -138,6 +186,8 @@ init { maxStates, numberOfAnts, gridWidth, gridHeight } =
             , width = gridWidth
             , height = gridHeight
             , maxStates = maxStates
+            , cellwidth = cellwidth
+            , colors = initColors maxStates
             }
     in
     { ants = ants
@@ -165,36 +215,8 @@ documentWithTitle title body =
     Document title [ body ]
 
 
-colors : Array String
-colors =
-    let
-        { maxStates } =
-            Config.values
-    in
-    List.range 0 maxStates
-        |> List.reverse
-        |> List.map
-            (\v ->
-                let
-                    s =
-                        toFloat v
-                            / toFloat maxStates
-                            * 255
-                            |> String.fromFloat
-                in
-                "rgb("
-                    ++ s
-                    ++ ","
-                    ++ s
-                    ++ ","
-                    ++ s
-                    ++ ")"
-            )
-        |> Array.fromList
-
-
-viewCell : Int -> Int -> Int -> (Int -> Int -> Svg msg)
-viewCell cellwidth width height index state =
+viewCell : Anthill -> (Int -> Int -> Svg msg)
+viewCell { cellwidth, width, height, colors } index state =
     let
         strCellwidth =
             String.fromInt cellwidth
@@ -224,20 +246,20 @@ viewCell cellwidth width height index state =
         []
 
 
-viewAnt : Int -> Int -> Int -> (Ant -> Svg msg)
-viewAnt cellwidth width height { position } =
+viewAnt : Anthill -> Ant -> Svg msg
+viewAnt { cellwidth } { position } =
     let
         strCellwidth =
             String.fromInt cellwidth
 
         x =
             position.x
-                |> (*) cellwidth
+                * cellwidth
                 |> String.fromInt
 
         y =
             position.y
-                |> (*) cellwidth
+                * cellwidth
                 |> String.fromInt
     in
     Svg.rect
@@ -250,17 +272,17 @@ viewAnt cellwidth width height { position } =
         []
 
 
-viewAnthill : Int -> Model -> Html msg
-viewAnthill cellwidth { anthill, ants } =
+viewAnthill : Model -> Html msg
+viewAnthill { anthill, ants } =
     let
         width =
             anthill.width
-                * cellwidth
+                * anthill.cellwidth
                 |> String.fromInt
 
         height =
             anthill.height
-                * cellwidth
+                * anthill.cellwidth
                 |> String.fromInt
 
         viewbox =
@@ -275,22 +297,22 @@ viewAnthill cellwidth { anthill, ants } =
 
         renderedCells =
             Array.indexedMap
-                (viewCell cellwidth anthill.width anthill.height)
+                (viewCell anthill)
                 anthill.grid
                 |> Array.toList
 
         renderedAnts =
             List.map
-                (viewAnt cellwidth anthill.width anthill.height)
+                (viewAnt anthill)
                 ants
     in
     root
         (renderedCells ++ renderedAnts)
 
 
-view : Config -> Model -> Document Msg
-view { cellwidth } model =
-    viewAnthill cellwidth model
+view : Model -> Document Msg
+view model =
+    viewAnthill model
         |> documentWithTitle "Anthill"
 
 
@@ -417,8 +439,8 @@ updateGrid { position } anthill =
     { anthill | grid = nextGrid }
 
 
-update : Config -> Msg -> Model -> ( Model, Cmd Msg )
-update config msg model =
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
     case msg of
         Tick ->
             let
@@ -451,25 +473,11 @@ update config msg model =
 -- SUBSCRIPTIONS
 
 
-subscriptions : Config -> Model -> Sub Msg
-subscriptions _ { state } =
+subscriptions : Model -> Sub Msg
+subscriptions { state } =
     case state of
         Running ->
             onAnimationFrame <| always Tick
 
         _ ->
             Sub.none
-
-
-
--- MAIN
-
-
-main : Program () Model Msg
-main =
-    Browser.document
-        { init = always <| init Config.values
-        , view = view Config.values
-        , update = update Config.values
-        , subscriptions = subscriptions Config.values
-        }
